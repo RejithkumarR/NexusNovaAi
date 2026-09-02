@@ -1,3 +1,5 @@
+from typing import Any
+
 from .models import NovaModel, NovaResponse
 from .router import CapabilityRouter, RequestContext
 
@@ -7,10 +9,10 @@ class NovaOrchestrator:
         self.model = model
         self.router = router or CapabilityRouter()
 
-    def run(self, request: RequestContext) -> NovaResponse:
+    def run(self, request: RequestContext, **kwargs: Any) -> NovaResponse:
         capability = self.router.route(request)
         if capability == "chat":
-            return self.model.generate(request.text)
+            return self.model.generate(request.text, **kwargs)
 
         return NovaResponse(
             text=f"Capability '{capability}' is routed but its provider is not configured yet.",
