@@ -3,9 +3,9 @@ requires = ["setuptools>=75", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "nova-ai"
-version = "0.1.0"
-description = "NOVA - Neural Omni-modal Virtual Assistant"
+name = "nexus-nova-ai"
+version = "0.3.0"
+description = "Nexus Nova AI - Neural Omni-modal Virtual Assistant"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115,<1",
