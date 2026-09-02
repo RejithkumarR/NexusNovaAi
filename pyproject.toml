@@ -23,5 +23,5 @@ ml = [
 ]
 test = ["pytest>=8,<9", "httpx>=0.28,<1"]
 
-a [tool.pytest.ini_options]
+[tool.pytest.ini_options]
 testpaths = ["tests"]
