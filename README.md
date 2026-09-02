@@ -2,53 +2,106 @@
 
 **Neural Omni-modal Virtual Assistant** — a self-hosted general-purpose AI platform for chat, vision, audio, video, image generation, coding, agents, tools, and memory.
 
-> NOVA 0.2 adds the first real self-hosted model runtime and an isolated code execution path. No hosted AI inference provider is required.
+> NOVA 0.3 adds a local Ollama inference path, vector-search RAG hook, self-hosted API login, training endpoints, and a redesigned Flutter client.
 
 ## Architecture
 
 ```text
-Client
-  -> NOVA API
-      -> Capability Router
-          -> NOVA Local Model / Multimodal Providers
-              -> Tools / Agents / Code Sandbox
+Flutter Mobile
+    -> NOVA API
+        -> Authentication
+        -> Capability Router
+        -> Ollama -> local NOVA model
+        -> Vector DB -> retrieval context -> Ollama
+        -> Training worker -> NOVA adapter/checkpoint
+        -> Code Sandbox
 ```
 
-## Current foundation
+NOVA does not require OpenAI, Gemini, Claude, Groq, or another hosted AI inference provider. Ollama is used only as a local model runtime on infrastructure you control.
 
-- FastAPI service with `/health` and `/v1/chat`
-- Provider-neutral `NovaModel` interface
-- Self-hosted Transformers runtime loading a local checkpoint only
-- Local deterministic `EchoModel` for dependency-light CI smoke tests
-- Multimodal capability router
-- `/v1/code/run` for Python execution inside a networkless Docker sandbox
-- Pytest coverage for routing, local-model configuration, and sandbox contracts
-- Optional ML dependencies for PyTorch + Transformers
-- GitHub Actions CI
+## Ollama setup
 
-## Self-hosted model
-
-Production NOVA deployments must point `NOVA_MODEL_PATH` at a model directory already present on the server. The runtime uses `local_files_only=True`, so it does not call a hosted model inference API or silently download model weights.
-
-Install the ML runtime:
+Install and run Ollama on the same server/network as the NOVA API, then make sure your local model is available to Ollama. Configure:
 
 ```bash
-pip install -e '.[ml]'
+NOVA_OLLAMA_BASE_URL=http://127.0.0.1:11434
+NOVA_OLLAMA_MODEL=nova
+NOVA_OLLAMA_TIMEOUT_SECONDS=120
 ```
 
-Configure the model:
+The model name is an Ollama tag, so replace `nova` with the tag you actually use. NOVA calls Ollama's local HTTP API; no cloud AI key is required.
+
+## Vector database / RAG
+
+The API now has a provider-neutral vector-store adapter. Configure:
 
 ```bash
-# Linux/macOS
-export NOVA_MODEL_PATH=/models/nova
-
-# Windows PowerShell
-$env:NOVA_MODEL_PATH='D:\models\nova'
+NOVA_VECTOR_DB_URL=http://127.0.0.1:YOUR_VECTOR_DB_PORT
+NOVA_VECTOR_DB_API_KEY=
 ```
 
-The checkpoint should contain the tokenizer and model files expected by Hugging Face Transformers. Chat-capable tokenizers should include their chat template; NOVA uses it when available.
+The current adapter expects a small NOVA-compatible endpoint: `POST /search` with `{"query":"...","limit":5}` and a response containing `results` with `text`, `score`, and optional `metadata`. This keeps the core NOVA API independent of the vector database vendor.
 
-## Code agent sandbox
+**Before production, set the adapter to the exact vector database you use.** Qdrant, Chroma, Weaviate, Milvus, pgvector, etc. have different APIs; the exact integration should be implemented once the database name/version is known.
+
+When RAG is enabled in the mobile chat screen, NOVA retrieves relevant private context first and then sends the augmented prompt to the local Ollama model.
+
+## Mobile application
+
+The Flutter client now has:
+
+- polished NOVA login screen with self-hosted branding
+- secure bearer-token session storage
+- dedicated Chat screen
+- optional private Knowledge/RAG toggle
+- dedicated Teach NOVA training screen
+- CSV/XLSX/Markdown upload
+- JSONL preparation
+- one-tap training job launch
+- sign-out
+- dark, Material 3 visual design
+
+Run it with your API URL:
+
+```bash
+flutter pub get
+flutter run --dart-define=NOVA_API_URL=http://10.0.2.2:8000
+```
+
+For a physical Android device, replace `10.0.2.2` with the reachable LAN address of the NOVA API server.
+
+## Self-hosted login
+
+Configure these server-side values and change them before deployment:
+
+```bash
+NOVA_AUTH_USERNAME=admin
+NOVA_AUTH_PASSWORD=change-me
+NOVA_AUTH_SECRET=change-this-secret
+NOVA_AUTH_TOKEN_TTL_MINUTES=720
+```
+
+This release provides a single-account self-hosted access gate. A multi-user database-backed identity system can be added later without changing the mobile navigation.
+
+## Training
+
+Training is separate from inference. Ollama serves the model; the training worker uses the existing TRL/PEFT pipeline. Configure a local/Hugging Face-compatible training checkpoint:
+
+```bash
+NOVA_TRAINING_MODEL_NAME=/models/base-model
+NOVA_TRAINING_OUTPUT_DIR=artifacts/nova-adapter
+NOVA_TRAINING_EPOCHS=1
+```
+
+The mobile flow is:
+
+```text
+Upload data -> Prepare JSONL -> Start training -> Adapter/checkpoint
+```
+
+After training, the resulting model/adaptor must be exported/deployed in a format supported by your Ollama model workflow before the newly trained model is served.
+
+## Code sandbox
 
 Build the local sandbox image:
 
@@ -56,18 +109,9 @@ Build the local sandbox image:
 docker build -t nova-code-sandbox:latest infra/code-sandbox
 ```
 
-The API currently enables Python only. Execution uses a disposable container with no network, dropped Linux capabilities, a read-only filesystem, PID/memory/CPU limits, and a timeout.
+Python execution uses a disposable container with no network, dropped capabilities, a read-only filesystem, resource limits, and a timeout.
 
-Example request:
-
-```json
-{
-  "language": "python",
-  "code": "print('hello NOVA')"
-}
-```
-
-## Run locally
+## Run the API
 
 ```bash
 python -m venv .venv
@@ -79,22 +123,14 @@ uvicorn apps.api.main:app --reload
 
 Then open `http://127.0.0.1:8000/docs`.
 
-For actual local-model inference, install the ML extra and set `NOVA_MODEL_PATH` before starting the API.
-
-## Roadmap
-
-1. Add local vision, audio, video, and image-generation runtimes.
-2. Connect the NOVA Code agent to model tool-calling without automatically executing untrusted output.
-3. Add tool calling, RAG, web research, and long-term memory.
-4. Add evaluation datasets and repeatable model fine-tuning.
-5. Train NOVA-specific adapters/checkpoints from the project dataset pipeline.
-6. Move toward a unified omni-modal NOVA model trained and served on NOVA infrastructure.
+For the optional direct Transformers runtime, install the ML extra and configure `NOVA_MODEL_PATH`. Ollama remains the preferred inference path when `NOVA_OLLAMA_MODEL` is configured.
 
 ## Project principles
 
-- Self-hosted inference and no mandatory third-party AI APIs
-- Open interfaces over vendor lock-in
-- Safe sandboxing for generated code
-- Reproducible evaluation before model changes
-- Modular inference so capabilities can scale independently
+- self-hosted inference and no mandatory third-party AI APIs
+- private RAG and data ownership
+- open interfaces over vendor lock-in
+- safe sandboxing for generated code
+- reproducible evaluation before model changes
+- modular inference so capabilities can scale independently
 - API compatibility as the platform evolves
