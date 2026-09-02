@@ -1,0 +1,1 @@
+The canonical Nexus Nova AI logo is maintained as the supplied binary branding asset. Configure this asset for the launcher icon and in-app header when the platform-specific Flutter folders are generated.
