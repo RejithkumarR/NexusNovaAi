@@ -37,10 +37,7 @@ class LocalTransformerModel(NovaModel):
         tokenizer = AutoTokenizer.from_pretrained(self.model_path, local_files_only=True)
         load_kwargs: dict[str, Any] = {"local_files_only": True}
         settings = get_settings()
-        if settings.device == "auto":
-            load_kwargs["device_map"] = "auto"
-        else:
-            load_kwargs["device_map"] = settings.device
+        load_kwargs["device_map"] = settings.device
         load_kwargs["torch_dtype"] = "auto"
 
         model = AutoModelForCausalLM.from_pretrained(self.model_path, **load_kwargs)
@@ -63,9 +60,8 @@ class LocalTransformerModel(NovaModel):
                 messages,
                 add_generation_prompt=True,
                 return_tensors="pt",
-            )
-            if hasattr(inputs, "to"):
-                inputs = inputs.to(model.device)
+                return_dict=True,
+            ).to(model.device)
         else:
             inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
 
@@ -81,10 +77,12 @@ class LocalTransformerModel(NovaModel):
         if do_sample:
             generation_kwargs["temperature"] = temperature
 
-        with __import__("torch").inference_mode():
+        import torch
+
+        with torch.inference_mode():
             output = model.generate(**inputs, **generation_kwargs)
 
-        input_length = inputs["input_ids"].shape[-1] if isinstance(inputs, dict) else inputs.shape[-1]
+        input_length = inputs["input_ids"].shape[-1]
         generated = output[0][input_length:]
         text = tokenizer.decode(generated, skip_special_tokens=True).strip()
 
